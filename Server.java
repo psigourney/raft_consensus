@@ -14,10 +14,6 @@ import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 
-//AppendEntriesRPC Format:
-// SendingServerIP|SendingServerPort|Leader'sTerm|Leader'sID|PreviousLogIndex|PreviousLogTerm|LogEntry(0 for heartbeat)|Leader'sCommittedIndex
-
-
 
 class Node{
     public int id;
@@ -42,27 +38,30 @@ class LogEntry{
 }
 
 
-
-
-
 public class Server{
     
-    static final int HEARTBEAT_TIMER = 2000;     //milliseconds
-    static final int MIN_ELECTION_TIMER = 5000;  //milliseconds
-    static final int MAX_ELECTION_TIMER = 7000;  //milliseconds
+    static final int HEARTBEAT_TIMER = 2000;    //milliseconds
+    static final int MIN_ELECTION_TIMER = 5000; //milliseconds
+    static final int MAX_ELECTION_TIMER = 7000; //milliseconds
     
-    public static Random rand = new Random(); //For random election timer
-    public static int randomInt = 7000;
+    public static Random rand = new Random();   //For random election timer
+    public static int randomInt = 0;            //For random election timer
     
+    public static int numberOfServers = 0;
     public static int myServerId = 0;
     public static String myIp = "0";
     public static int myPort = 0;
-    public static char serverRole = 'F'; //(L)eader, (C)andidate, or (F)ollower; initialized as Follower
-    public static int term = 0;
-    public static int leaderId = 1;  //Initialize to 0, setting to 1 for testing
-    public static int votedFor = 0;
+    public static char serverRole = 'F';        //(L)eader, (C)andidate, or (F)ollower; initialized as Follower
+    public static int currentTerm = 0;
+    public static int leaderId = 1;             //Initialize to 0, setting to 1 for testing
+    public static int votedFor = 0;             //Who I voted for
+    public static int votesReceived = 0;        //Number of votes I've received
     
-    //When server is Follower, countdown to start election for new leader, receipt of heartbeat message will reset timer. (random time between 5-7 seconds)
+    public static ArrayList<Node> nodeList = new ArrayList<Node>();
+    public static ArrayList<LogEntry> logList = new ArrayList<LogEntry>();
+    
+    //When server is Follower, countdown to start election for new leader, receipt of heartbeat message will reset timer. 
+    //(random time between 5-7 seconds)
     public static Timer electionTimer = new Timer();
     public static TimerTask startElectionTask = new TimerTask(){
         public void run(){
@@ -78,16 +77,14 @@ public class Server{
         }
     };
     
-
-//AppendEntriesRPC Format:
-// APPENDENTRY|SendingServerIP|SendingServerPort|Leader'sTerm|Leader'sID|PreviousLogIndex|PreviousLogTerm|LogEntry(0 for heartbeat)|Leader'sCommittedIndex    
+   
     public static void sendHeartbeat(){
         for(Node node : nodeList){
             try{
             Socket tcpSocket = new Socket(node.ipAddr, node.port);
             PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
 
-            String replyMessage =  "APPENDENTRY" + "|" + myIp + "|" + myPort;  //Will add more stuff later
+            String replyMessage =  "APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;  //Will add more stuff later
                                    
             outputWriter.write(replyMessage + "\n");
             outputWriter.flush();
@@ -99,35 +96,51 @@ public class Server{
     }
     
     public static void startElection(){
-        serverRole = 'C';
-        term += 1;
-        votedFor = myServerId;
-        electionTimer.cancel();
-        //Send RequestVote messages to all other servers   
-        //If 1/2 vote for me, I'm the new leader
+        serverRole = 'C';       //Become a Candidate
+        term += 1;              //Start the next term
+        votedFor = myServerId;  //I voted for myself
+        votesReceived = 1;      //I voted for myself
         
-        electionTimer = new Timer();
+        electionTimer.cancel(); //We'll create a new one later
+        sendVoteRequest();      //Send vote request to everyone
+        
+        electionTimer = new Timer();    //Here's the new timer.
         randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
         electionTimer.schedule(startElectionTask, randomInt);
     }
 
-    public static ArrayList<Node> nodeList = new ArrayList<Node>();
-    public static ArrayList<LogEntry> logList = new ArrayList<LogEntry>();
+    public static void sendVoteRequest(){
+        for(Node node : nodeList){
+            try{
+            Socket tcpSocket = new Socket(node.ipAddr, node.port);
+            PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
+
+            String replyMessage = "REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+                                   
+            outputWriter.write(replyMessage + "\n");
+            outputWriter.flush();
+            tcpSocket.close();
+            }
+            catch(IOException ioe){//System.err.println(node.ipAddr + ":" + node.port + ": " + ioe); 
+                                    continue;}
+        }
+    }
+    
+
     
     public static void initialSetup(String filename) throws IOException {
         BufferedReader inputBuffer = new BufferedReader(new FileReader(filename));
         String[] lineArr = inputBuffer.readLine().trim().split("\\s+");
-        int serverCount = -1;
         if(lineArr.length == 2){
             myServerId = Integer.parseInt(lineArr[0]);
-            serverCount = Integer.parseInt(lineArr[1]);
+            numberOfServers = Integer.parseInt(lineArr[1]);
         }
         else{
             System.out.println("Invalid input file");
             System.exit(-1);
         }
         
-        for(int x = 0; x < serverCount; x++){
+        for(int x = 0; x < numberOfServers; x++){
             lineArr = inputBuffer.readLine().split(":");
             if(lineArr.length == 3){
                 if(Integer.parseInt(lineArr[0]) == myServerId){
@@ -153,34 +166,88 @@ public class Server{
             ServerSocket tcpServerSocket = new ServerSocket(myPort);        
             Socket tcpClientSocket;
             String[] msgArray;
+            String replyMessage = "";
             while(true){
                 tcpClientSocket = tcpServerSocket.accept();
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpClientSocket.getInputStream()));
                 PrintWriter outputWriter = new PrintWriter(tcpClientSocket.getOutputStream(), true);
                 
+                String messageType = "0";
+                int senderServerId = 0;
+                String senderIp = "0";
+                int senderPort = 0;
+                int senderCurrentTerm = 0;
+                
                 String inputLine = inputReader.readLine();
                 if(inputLine.length() > 0){
                     System.out.println("MsgRcvd: " + inputLine);
-                    
-                    //Process the received message somehow
                     msgArray = inputLine.trim().split("|");
-                    if(msgArray[0].equals("APPENDENTRY")){
-                        //cancel electionClock
+                    
+                    if(msgArray.length < 5)  //Improperly formatted message; disregard.
+                        continue;
+                    
+                    //Parse out the common message components
+                    messageType = msgArray[0];
+                    senderServerId = Integer.parseInt(msgArray[1]);
+                    senderIp = msgArray[2];
+                    senderPort = Integer.parseInt(msgArray[3]);
+                    senderCurrentTerm = Integer.parseInt(msgArray[4]);
+                    
+                    
+                    //"APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;
+                    if(messageType.equals("APPENDENTRY")){
                         electionTimer.cancel();
-                        electionTimer = new Timer();
-                        
-                        //process AppendEntryRPC message
-                        //update term, update leader
 
+                        replyMessage =  "APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+
+                        if(senderCurrentTerm < currentTerm){
+                            replyMessage += "|FALSE";                            
+                        }
+                        else{
+                            replyMessage += "|TRUE";
+                            currentTerm = Integer.parseInt(msgArray[4]);
+                            leaderId = senderServerId;
+                        }
                         
-                        //restart electionClock
-                        //Set this number to random int between 5000-7000 (5-7secs)
+                        sendMessage(replyMessage, senderIp, senderPort);
+                        
+                        electionTimer = new Timer();
                         randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
                         electionTimer.schedule(startElectionTask, randomInt);
                     }
-                    if(msgArray[0].equals("REQUESTVOTE")){
-                        //If requestedTerm < currentTerm, reply false
-                        //If votedFor == 0 or votedFor == candidateId, give vote
+                    
+                    //"REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+                    else if(messageType.equals("REQUESTVOTE")){
+                        if(senderCurrentTerm <= currentTerm){
+                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "FALSE";
+                        }
+                        else if(votedFor == 0){
+                            //give vote
+                            currentTerm = senderCurrentTerm;
+                            votedFor = senderServerId;
+                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
+                        }
+                        sendMessage(replyMessage, senderIp, senderPort);                        
+                    }
+                    
+                    //"APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+                    else if(messageType.equals("APPENDREPLY"){
+                        if(senderCurrentTerm > currentTerm){
+                            serverRole = 'F';  //Can't be a leader anymore, change to Follower
+                            currentTerm = senderCurrentTerm;
+                        }
+                    }
+                    
+                    //"VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE/FALSE";
+                    else if(messageType.equals("VOTEREPLY"){    //Reply to REQUESTVOTE message
+                        if(msgArray[5].equals("TRUE"){
+                            votesReceived += 1;                            
+                        }
+                        else if(senderCurrentTerm > currentTerm){
+                            currentTerm = senderCurrentTerm;
+                            serverRole = 'F';
+                        }
+                        
                     }
                 }
             }
@@ -189,7 +256,17 @@ public class Server{
     }
     
     
-    
+    public static void sendMessage(String message, String ipAddr, int port){
+        try{
+            Socket tcpSocket = new Socket(ipAddr, port);
+            PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
+
+            outputWriter.write(message + "\n");
+            outputWriter.flush();
+            tcpSocket.close();
+            }
+            catch(IOException ioe){System.err.println(node.ipAddr + ":" + node.port + ": " + ioe);}
+    }
     
     
     public static void main(String[] args) throws IOException {
@@ -197,9 +274,8 @@ public class Server{
             System.out.println("Invalid command line arguments");
             System.exit(-1);            
         }
-        
-        //Read in input file and setup nodes in nodeList
-        initialSetup(args[0]); 
+                
+        initialSetup(args[0]);              //Read in input file and setup nodes
         
         ////////Testing
         //    for(Node line : nodeList) System.out.println("Node " + line.id + ": " + line.ipAddr + ":" + line.port);
@@ -210,20 +286,17 @@ public class Server{
         
 
         while(true){
-            //If I'm the leader, send out a heartbeat every HEARTBEAT_TIMER seconds:
-            if(myServerId == leaderId){
+            if(serverRole == 'L'){          //Leader sends regular heartbeat to all servers
                 heartbeatTimer.scheduleAtFixedRate(startHeartbeatTask, HEARTBEAT_TIMER, HEARTBEAT_TIMER);
             }
-            if(serverRole == 'F'){  //If Follower and no heartbeat received for 5sec, start election to become Leader
-                //Set timer to random int between 5
+            else if(serverRole == 'F'){          //Followers elect new leader if heartbeat not received
                 randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
                 electionTimer.schedule(startElectionTask, randomInt);
             }
-            //Listen for incoming messages
-            listenForMessage();
+            
+            listenForMessage();             //Everyone listens for incoming messages
         }
-        
-        
     }
-    
 }
+
+
