@@ -57,6 +57,7 @@ public class Server{
     public static int leaderId = 0;             //Initialize to 0, setting to 1 for testing
     public static int votedFor = 0;             //Who I voted for
     public static int votesReceived = 0;        //Number of votes I've received
+    public static int voteRepliesReceived = 0;  //Number of vote replies I've received
     
     public static ArrayList<Node> nodeList = new ArrayList<Node>();
     public static ArrayList<LogEntry> logList = new ArrayList<LogEntry>();
@@ -80,16 +81,16 @@ public class Server{
     
    
     public static void sendHeartbeat(){
-        String replyMessage =  "APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;  //Will add more stuff later
+        String message =  "APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;
         for(Node node : nodeList){
-            sendMessage(replyMessage, node.id, node.ipAddr, node.port);
+            sendMessage(message, node.id, node.ipAddr, node.port);
         }
     }
     
     public static void sendVoteRequest(){
-        String replyMessage = "REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+        String message = "REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
         for(Node node : nodeList){
-            sendMessage(replyMessage, node.id, node.ipAddr, node.port);
+            sendMessage(message, node.id, node.ipAddr, node.port);
         }
     }
     
@@ -98,6 +99,7 @@ public class Server{
         currentTerm += 1;       //Start the next term
         votedFor = myServerId;  //I voted for myself
         votesReceived = 1;      //I voted for myself
+        voteRepliesReceived = 1;        
         
         electionTimer.cancel(); //We'll create a new one later
         
@@ -105,7 +107,7 @@ public class Server{
         sendVoteRequest();      //Send vote request to everyone
         
         try{
-        Thread.sleep(1000); //sleep 1 second to wait for votes
+        Thread.sleep(2000); //sleep 1 second to wait for votes
         }catch(InterruptedException ie){System.err.println("startElection(): " + ie);} 
         
         System.out.println("Votes Received for term " + currentTerm + ": " + votesReceived);
@@ -211,42 +213,41 @@ public class Server{
                             replyMessage =  "APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
                         }
                         
-                        sendMessage(replyMessage, senderServerId, senderIp, senderPort);
-
+                        sendReply(replyMessage, senderServerId, tcpClientSocket);
                     }
                     
-                    //"REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
-                    else if(messageType.equals("REQUESTVOTE")){
-                        if(senderCurrentTerm <= currentTerm){
-                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "FALSE";
-                        }
-                        else if(votedFor == 0){
-                            currentTerm = senderCurrentTerm;
-                            votedFor = senderServerId;
-                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
-                            sendMessage(replyMessage, senderServerId, senderIp, senderPort);
-                        }
-                    }
+                    ////"REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+                    // else if(messageType.equals("REQUESTVOTE")){
+                        // if(senderCurrentTerm <= currentTerm){
+                            // replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "FALSE";
+                        // }
+                        // else if(votedFor == 0){
+                            // currentTerm = senderCurrentTerm;
+                            // votedFor = senderServerId;
+                            // replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
+                            // sendMessage(replyMessage, senderServerId, senderIp, senderPort);
+                        // }
+                    // }
                     
-                    //"APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
-                    else if(messageType.equals("APPENDREPLY")){
-                        if(senderCurrentTerm > currentTerm){
-                            serverRole = 'F';  //Can't be a leader anymore, change to Follower
-                            currentTerm = senderCurrentTerm;
-                        }
-                    }
+                    ////"APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+                    // else if(messageType.equals("APPENDREPLY")){
+                        // if(senderCurrentTerm > currentTerm){
+                            // serverRole = 'F';  //Can't be a leader anymore, change to Follower
+                            // currentTerm = senderCurrentTerm;
+                        // }
+                    // }
                     
-                    //"VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE/FALSE";
-                    else if(messageType.equals("VOTEREPLY")){    //Reply to REQUESTVOTE message
-                        if(msgArray[5].equals("TRUE")){
-                            votesReceived += 1;                            
-                        }
-                        else if(senderCurrentTerm > currentTerm){
-                            currentTerm = senderCurrentTerm;
-                            serverRole = 'F';
-                        }
+                    ////"VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE/FALSE";
+                    // else if(messageType.equals("VOTEREPLY")){    //Reply to REQUESTVOTE message
+                        // if(msgArray[5].equals("TRUE")){
+                            // votesReceived += 1;                            
+                        // }
+                        // else if(senderCurrentTerm > currentTerm){
+                            // currentTerm = senderCurrentTerm;
+                            // serverRole = 'F';
+                        // }
                         
-                    }
+                    // }
                     electionTimer = new Timer();
                     startElectionTask = new TimerTask(){ public void run(){startElection();}};
                     randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
@@ -258,20 +259,63 @@ public class Server{
     }
     
     
-    public static void sendMessage(String message, int serverId, String ipAddr, int port){
+    public static String sendMessage(String message, int serverId, String ipAddr, int port){
         try{
             Socket tcpSocket = new Socket(ipAddr, port);
             PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
+            BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
 
             outputWriter.write(message + "\n");
             outputWriter.flush();
-            tcpSocket.close();
             System.out.println("Sent Message to server " + serverId + ": " + message);
+            
+            String replyMessage = inputReader.readLine();
+            String[] msgArray = replyMessage.trim().split("\\:");
+            if(msgArray.length < 5)  //Improperly formatted message; disregard.
+                throw IOException;
+                
+            String messageType = msgArray[0];
+            int senderServerId = Integer.parseInt(msgArray[1]);
+            String senderIp = msgArray[2];
+            int senderPort = Integer.parseInt(msgArray[3]);
+            int senderCurrentTerm = Integer.parseInt(msgArray[4]);
+            
+            if(messageType.equals("APPENDREPLY")){
+                if(senderCurrentTerm > currentTerm){
+                    serverRole = 'F';  //Can't be a leader anymore, change to Follower
+                    currentTerm = senderCurrentTerm;
+                }
             }
-            catch(IOException ioe){//System.err.println("sendMessage(): " + ipAddr + ":" + port + ": " + ioe);
-                                   return;}
+            else if(messageType.equals("VOTEREPLY")){    //Reply to REQUESTVOTE message
+                if(msgArray[5].equals("TRUE")){
+                    votesReceived += 1;                            
+                }
+                else if(senderCurrentTerm > currentTerm){
+                    currentTerm = senderCurrentTerm;
+                    serverRole = 'F';
+                }
+            }
+            
+            tcpSocket.close();
+            
+        }
+        catch(IOException ioe){//System.err.println("sendMessage(): " + ipAddr + ":" + port + ": " + ioe);
+                               return;}
     }
     
+    //sendReply(replyMessage, senderServerId, tcpClientSocket);
+    public static void sendReply(String message, int serverId, Socket tcpClientSocket){
+    try{
+        PrintWriter outputWriter = new PrintWriter(tcpClientSocket.getOutputStream(), true);
+    
+        outputWriter.write(message + "\n");
+        outputWriter.flush();
+        tcpSocket.close();
+        System.out.println("Sent Reply to server " + serverId + ": " + message);
+        }
+        catch(IOException ioe){//System.err.println("sendMessage(): " + ipAddr + ":" + port + ": " + ioe);
+                               return;}
+    }
     
     public static void main(String[] args) throws IOException {
         if(args.length != 1){
@@ -282,28 +326,17 @@ public class Server{
         initialSetup(args[0]);              //Read in input file and setup nodes
         
         ////////Testing
-        //    for(Node line : nodeList) System.out.println("Node " + line.id + ": " + line.ipAddr + ":" + line.port);
             System.out.println("\nMy ServerId: " + myServerId);
             System.out.println("My IP: " + myIp);
             System.out.println("My Port: " + myPort);
         ////////////////
         
+        electionTimer = new Timer();
+        startElectionTask = new TimerTask(){ public void run(){startElection();}};
+        randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
+        electionTimer.schedule(startElectionTask, randomInt);
 
-        while(true){
-            if(leaderId == myServerId){          //Leader sends regular heartbeat to all servers
-                serverRole = 'L';
-                heartbeatTimer.scheduleAtFixedRate(startHeartbeatTask, HEARTBEAT_TIMER, HEARTBEAT_TIMER);
-            }
-            else if(serverRole == 'F'){          //Followers elect new leader if heartbeat not received
-                electionTimer.cancel();
-                electionTimer = new Timer();
-                startElectionTask = new TimerTask(){ public void run(){startElection();}};
-                randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
-                electionTimer.schedule(startElectionTask, randomInt);
-            }
-            
-            listenForMessage();             //Everyone listens for incoming messages
-        }
+        listenForMessage();
     }
 }
 
