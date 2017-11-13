@@ -215,7 +215,17 @@ public class Server{
                         }
                         sendReply(replyMessage, senderServerId, tcpClientSocket);
                     }
-
+                    
+                    else if(messageType.equals("CLIENTMSG")){
+                        if(serverRole == 'L'){
+                            //Add message to the local log
+                            //Send reply after update is written
+                            //Send AppendEntries message to all servers to have them update their logs
+                        }
+                        else{
+                            //Send current leader info back to client
+                        }
+                    }
                     electionTimer = new Timer();
                     startElectionTask = new TimerTask(){ public void run(){startElection();}};
                     randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
