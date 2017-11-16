@@ -173,13 +173,38 @@ public class Server{
                 if(inputLine.length() > 0){
                     //System.out.println("MSG RCVD: " + inputLine);
                     msgArray = inputLine.trim().split("\\|");
+                    String messageType = msgArray[0];
+
+                    // RESULT CODES for Client Messages
+                    //      0 =  message sent
+                    //      1..n = serverId of the leader (resend to leader)
+                    //      -1 = leader is unknown
+                    if(messageType.equals("CLIENTMSG")){
+                        System.out.println("CLIENTMSG RCVD: " + inputLine);
+                        if(serverRole == 'L'){
+                            //Add message to the local log
+                            //Send reply after update is written
+                            //Send AppendEntries message to all servers to have them update their logs
+                            replyMessage = "0\n";  //message logged successfully.
+                            sendReply(replyMessage, 0, tcpClientSocket);
+                        }
+                        else{
+                            if(leaderId == myServerId) 
+                                replyMessage = "-1\n"; //Don't know the real leader
+                            //Send current leader info back to client
+                            else
+                                replyMessage = Integer.toString(leaderId) + "\n";
+                            
+                            sendReply(replyMessage, 0, tcpClientSocket);
+                        }
+                    }
+                    
                     
                     if(msgArray.length < 5)     //Discard improperly formatted message
                         continue;
                     
                     electionTimer.cancel();
-                    
-                    String messageType = msgArray[0];
+
                     int senderServerId = Integer.parseInt(msgArray[1]);
                     String senderIp = msgArray[2];
                     int senderPort = Integer.parseInt(msgArray[3]);
@@ -216,16 +241,7 @@ public class Server{
                         sendReply(replyMessage, senderServerId, tcpClientSocket);
                     }
                     
-                    else if(messageType.equals("CLIENTMSG")){
-                        if(serverRole == 'L'){
-                            //Add message to the local log
-                            //Send reply after update is written
-                            //Send AppendEntries message to all servers to have them update their logs
-                        }
-                        else{
-                            //Send current leader info back to client
-                        }
-                    }
+                    
                     electionTimer = new Timer();
                     startElectionTask = new TimerTask(){ public void run(){startElection();}};
                     randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
