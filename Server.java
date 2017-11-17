@@ -278,6 +278,7 @@ public class Server{
             
             if(messageType.equals("APPENDREPLY")){
                 if(senderCurrentTerm > currentTerm){
+                    //maybe?  If Leader, cancel heartbeat timer the change to Follower?
                     serverRole = 'F';  //Can't be a leader anymore, change to Follower
                     currentTerm = senderCurrentTerm;
                 }
