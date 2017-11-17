@@ -54,7 +54,7 @@ public class Client{
 // 1) Send message to first server in list.
 // 2) If reply is OK, exit
 // 3) If reply is redirect to another server, send message to the other server. GOTO 2.
-// 4) If reply is serverId = 0; Send message to next server in list.  GOTO 2.
+// 4) If reply is serverId = -1; Send message to next server in list.  GOTO 2.
 
 // RESULT CODES:
 //      0 =  message sent
@@ -106,13 +106,12 @@ public class Client{
         //First line of file will be the number of servers, each subsequent line will be: serverId:serverIp:serverPort
         initialSetup(args[0]);
         
-        
+        Scanner scanner = new Scanner(System.in);
         String input = "";
         
         while(true){
             System.out.print("Enter log update: ");
             
-            Scanner scanner = new Scanner(System.in);
             input = scanner.nextLine().trim();
             int result = -1;
             if(!input.equals("quit")){
