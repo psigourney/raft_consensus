@@ -17,6 +17,7 @@ import java.util.TimerTask;
 
 
 import com.google.gson.Gson;
+import java.lang.reflect.Type;
 import com.google.gson.reflect.TypeToken;
 
 //Compile with:  javac -cp .;gson-2.6.2.jar Server.java
@@ -36,42 +37,51 @@ class Node{
 
 class LogEntry{
     public int term;
+    public int index;
     public String command;
     
-    public LogEntry(int termParam, String commandParam){
+    public LogEntry(int termParam, int indexParam, String commandParam){
         term = termParam;
+        index = indexParam;
         command = commandParam;
     }
 }
 
 class Message{
     public String type;
-    public int leaderTerm;
+    public int leaderTerm;  //Or candidate term if VOTEREQUEST
+    public int leaderId;    //Or candidate ID if VOTEREQUEST
     public int prevLogIndex;
     public int prevLogTerm;
     public ArrayList<LogEntry> entries;
     public int leaderCommitIndex;
+    public boolean reply;
     
     public Message( String typeParam,
                     int leaderTermParam,
+                    int leaderIdParam,
                     int prevLogIndexParam,
                     int prevLogTermParam,
                     ArrayList<LogEntry> entriesParam,
-                    int leaderCommitIndexParam){
+                    int leaderCommitIndexParam,
+                    boolean replyParam){
         type = typeParam;
         leaderTerm = leaderTermParam;
+        leaderId = leaderIdParam;
         prevLogIndex = prevLogIndexParam;
         prevLogTerm = prevLogTermParam;
         entries = entriesParam;
         leaderCommitIndex = leaderCommitIndexParam;
+        reply = replyParam;
     }
 }
 
 public class Server{
     
-    static final int HEARTBEAT_TIMER = 2000;    //milliseconds
-    static final int MIN_ELECTION_TIMER = 5000; //milliseconds
-    static final int MAX_ELECTION_TIMER = 8000; //milliseconds
+    //Timer values in milliseconds
+    static final int HEARTBEAT_TIMER = 2000;    
+    static final int MIN_ELECTION_TIMER = 5000; 
+    static final int MAX_ELECTION_TIMER = 8000; 
     
     public static Random rand = new Random();   //For random election timer
     public static int randomInt = 0;            //For random election timer
@@ -86,9 +96,16 @@ public class Server{
     public static int votedFor = 0;
     public static int votesReceived = 0;
     
+    public static int commitIndex = 0; //Index of highest committed log entry
+    public static int appliedIndex = 0; //Index of highest applied log entry
+
+    //For Leaders to use:
+    public static ArrayList<Integer> nextIndex; //for each server, index of next log entry to send to that server
+    public static ArrayList<Integer> matchIndex; //for each server, index of highest log entry known to be replicated on that server
+
+    
     public static ArrayList<Node> nodeList = new ArrayList<Node>();
     public static ArrayList<LogEntry> logList = new ArrayList<LogEntry>();
-    
     
     
     public static Timer electionTimer = new Timer();
@@ -108,19 +125,23 @@ public class Server{
    
    
     public static void sendHeartbeat(){
+        ArrayList<LogEntry> myList = new ArrayList<LogEntry>();
         String message =  "APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;
+        Message replyMsgObj = new Message("APPENDENTRY", currentTerm, leaderId, commitIndex, 0, myList, commitIndex, false);
         if(serverRole == 'L'){
             for(Node node : nodeList){
-                sendMessage(message, node.id, node.ipAddr, node.port);
+                sendMessage(replyMsgObj, node.id, node.ipAddr, node.port);
             }
         }
     }
     
     public static void sendVoteRequest(){
+        ArrayList<LogEntry> myList = new ArrayList<LogEntry>();
         String message = "REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
+        Message replyMsgObj = new Message("REQUESTVOTE", currentTerm, myServerId, 0, 0, myList, 0, true);
         if(serverRole == 'C'){
             for(Node node : nodeList){
-                sendMessage(message, node.id, node.ipAddr, node.port);
+                sendMessage(replyMsgObj, node.id, node.ipAddr, node.port);
             }
         }
     }
@@ -157,8 +178,8 @@ public class Server{
         }
     }
 
-
-
+    
+    
     public static void initialSetup(String filename) throws IOException {
         BufferedReader inputBuffer = new BufferedReader(new FileReader(filename));
         String[] lineArr = inputBuffer.readLine().trim().split("\\s+");
@@ -179,6 +200,13 @@ public class Server{
                     myPort = Integer.parseInt(lineArr[2]);
                     continue; //nodeList should only contain the OTHER nodes.
                 }
+
+                //initialize values
+                logList.add(new LogEntry(0,0,"init"));
+                nextIndex.add(0);
+                matchIndex.add(0);
+
+                
                 nodeList.add(new Node(Integer.parseInt(lineArr[0]), lineArr[1], Integer.parseInt(lineArr[2])));
             }
             else{
@@ -188,17 +216,7 @@ public class Server{
         }
     }
 
-    
-    
-    public static void listenForMessage() throws IOException {
-        try{
-            ServerSocket tcpServerSocket = new ServerSocket(myPort);        
-            Socket tcpClientSocket;
-            Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            String[] msgArray;
-            String replyMessage = "";
-            
-            
+ 
             //Encoding message into JSON:
             //Type messageTypeToken = new TypeToken<Message>() {}.getType();
             //Gson gsonSend = new Gson();
@@ -219,81 +237,95 @@ public class Server{
             //public int prevLogTerm;
             //public ArrayList<LogEntry> entries;
             //public int leaderCommitIndex;
+  
+    
+    public static void listenForMessage() throws IOException {
+        try{
+            ServerSocket tcpServerSocket = new ServerSocket(myPort);        
+            Socket tcpClientSocket;
+            Type messageTypeToken = new TypeToken<Message>() {}.getType();
             
             while(true){
                 tcpClientSocket = tcpServerSocket.accept();
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpClientSocket.getInputStream()));
                 String inputLine = inputReader.readLine();
                 Gson gsonRecv = new Gson();
-                Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
-                
-                    // RESULT CODES for Client Messages
-                    //      0 =  message sent
-                    //      1..n = serverId of the leader (resend to leader)
-                    //      -1 = leader is unknown
-                    if(receivedMessage.messageType.equals("CLIENTMSG")){
+                Message receivedMessage = gsonRecv.fromJson(inputLine, messageTypeToken);
+
+                    if(receivedMessage.type.equals("CLIENTMSG")){
                         System.out.println("CLIENTMSG RCVD");
                         if(serverRole == 'L'){
-                            logList.add(new LogEntry(currentTerm, msgArray[1]));
-
-                            replyMessage = "0\n";  //message logged successfully.
-                            sendReply(replyMessage, 0, tcpClientSocket);
+                            //Reply with leaderId value of 0 to indicate message recorded successfully.
+                            Message replyMsgObj = new Message("CLIENTMSGREPLY", currentTerm, 0, 0, 0, receivedMessage.entries, commitIndex, true);
+                            sendReply(replyMsgObj, 0, tcpClientSocket);  //send reply to client
                             
-                            //Now to send AppendLog message to all other servers.
+                            //  TODO: Send the AppendEntry message to all other servers.
                             
+                            //  When at least 50% of servers have replied with TRUE, message is committed.
+                            //  Add entry to the local log
+                            commitIndex += 1;
+                            logList.add(new LogEntry(currentTerm, commitIndex, receivedMessage.entries.get(0).command));
                             
+                            //  Apply entry to the state machine
+                            appliedIndex += 1;
                         }
                         else{
+                            Message replyMsgObj;
                             if(leaderId == myServerId) 
-                                replyMessage = "-1\n"; //I don't know the real leader
-                            //Send current leader info back to client
+                                //I don't know the real leader
+                                replyMsgObj = new Message("CLIENTMSGREPLY", currentTerm, -1, 0, 0, receivedMessage.entries, commitIndex, false);
                             else
-                                replyMessage = Integer.toString(leaderId) + "\n";
-                            
-                            sendReply(replyMessage, 0, tcpClientSocket);
+                                //The leader is leaderId
+                                replyMsgObj = new Message("CLIENTMSGREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
+                            sendReply(replyMsgObj, 0, tcpClientSocket);
                         }
                     }
-                    
-                    
-                    if(msgArray.length < 5)     //Discard improperly formatted message
-                        continue;
-                    
-                    electionTimer.cancel();
 
-                    int senderServerId = Integer.parseInt(msgArray[1]);
-                    String senderIp = msgArray[2];
-                    int senderPort = Integer.parseInt(msgArray[3]);
-                    int senderCurrentTerm = Integer.parseInt(msgArray[4]);
+                    electionTimer.cancel();
                     
-                    if(messageType.equals("APPENDENTRY")){
-                        if(senderCurrentTerm < currentTerm){
-                            replyMessage =  "APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "FALSE";                   
+                    if(receivedMessage.type.equals("APPENDENTRY")){
+                        Message replyMsgObj;
+                        if(receivedMessage.leaderTerm < currentTerm){
+                            replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
                         }
                         else{
+                            //Clear away any election stuff, in case it's been set
                             serverRole = 'F';
                             votedFor = 0;
                             votesReceived = 0;
-                            currentTerm = senderCurrentTerm;
-                            leaderId = senderServerId;
-                            replyMessage =  "APPENDREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
+                            currentTerm = receivedMessage.leaderTerm;
+                            leaderId = receivedMessage.leaderId;
+                            if(receivedMessage.reply == false){
+                                //It's a heartbeat message
+                                //Just send an empty reply with "true".
+                                replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, true);
+                            }
+                            else{
+                                // TODO:  CHECK MY LOG and compare against teh message's log entries
+                                // Craft reply accordingly
+
+                                //Placeholder:
+                                replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, true);
+                            }
                         }
-                        sendReply(replyMessage, senderServerId, tcpClientSocket);
+                        sendReply(replyMsgObj, receivedMessage.leaderId, tcpClientSocket);
                     }
                     
-                    else if(messageType.equals("REQUESTVOTE")){
-                        if(senderCurrentTerm <= currentTerm || (votedFor != senderServerId && votedFor != 0 && currentTerm >= senderCurrentTerm)){
-                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "FALSE";
+                    else if(receivedMessage.type.equals("REQUESTVOTE")){
+                        Message replyMsgObj;
+                        if(receivedMessage.leaderTerm <= currentTerm || (votedFor != receivedMessage.leaderId && votedFor != 0 && currentTerm >= receivedMessage.leaderTerm)){
+                            replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
                         }
                         else{
                             if(serverRole == 'L'){
                                 serverRole = 'F';
                                 heartbeatTimer.cancel();
                             }
-                            currentTerm = senderCurrentTerm;
-                            votedFor = senderServerId;
-                            replyMessage = "VOTEREPLY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + "TRUE";
+                            currentTerm = receivedMessage.leaderTerm;
+                            votedFor = receivedMessage.leaderId;
+                            replyMsgObj = new Message("APPENDREPLY", currentTerm, votedFor, 0, 0, receivedMessage.entries, commitIndex, true);
                         }
-                        sendReply(replyMessage, senderServerId, tcpClientSocket);
+                        sendReply(replyMsgObj, receivedMessage.leaderId, tcpClientSocket);
                     }
                     
                     
@@ -301,48 +333,46 @@ public class Server{
                     startElectionTask = new TimerTask(){ public void run(){startElection();}};
                     randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
                     electionTimer.schedule(startElectionTask, randomInt);
-                }
+                
             }
         }
         catch(IOException ioe){System.err.println("***EXCEPTION: listenForMessage(): " + ioe);}
     }
     
     
-    public static void sendMessage(String message, int serverId, String ipAddr, int port){
+    public static void sendMessage(Message msgObj, int serverId, String ipAddr, int port){
+        Type messageTypeToken = new TypeToken<Message>() {}.getType();
+        Gson gsonSend = new Gson();
+        String stringMessage = gsonSend.toJson(msgObj, messageTypeToken);
+        
         try{
             Socket tcpSocket = new Socket(ipAddr, port);
             PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
             BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
 
-            outputWriter.write(message + "\n");
+            outputWriter.write(stringMessage + "\n");
             outputWriter.flush();
-            //System.out.println("MSG SENT: " + message);
             
             String replyMessage = inputReader.readLine();
-            //System.out.println("RPLY RCVD: " + replyMessage);
             
-            String[] msgArray = replyMessage.trim().split("\\|");
-            if(msgArray.length < 5)  //Improperly formatted message; disregard.
-                throw new IOException();
-                
-            String messageType = msgArray[0];
-            int senderServerId = Integer.parseInt(msgArray[1]);
-            String senderIp = msgArray[2];
-            int senderPort = Integer.parseInt(msgArray[3]);
-            int senderCurrentTerm = Integer.parseInt(msgArray[4]);
-            
-            if(messageType.equals("APPENDREPLY")){
-                if(senderCurrentTerm > currentTerm){
+            Gson gsonRecv = new Gson();
+            Message receivedReply = gsonRecv.fromJson(replyMessage, messageTypeToken);
+
+            if(receivedReply.type.equals("APPENDREPLY")){
+                if(receivedReply.leaderTerm  > currentTerm){
+                    if(serverRole == 'L'){
+                        heartbeatTimer.cancel();    
+                    }
                     serverRole = 'F';  //Can't be a leader anymore, change to Follower
-                    currentTerm = senderCurrentTerm;
+                    currentTerm = receivedReply.leaderTerm;
                 }
             }
-            else if(messageType.equals("VOTEREPLY")){    //Reply to REQUESTVOTE message
-                if(msgArray[5].equals("TRUE")){
+            else if(receivedReply.type.equals("VOTEREPLY")){    //Reply to REQUESTVOTE message
+                if(receivedReply.reply == true){
                     votesReceived += 1;                            
                 }
-                else if(senderCurrentTerm > currentTerm){
-                    currentTerm = senderCurrentTerm;
+                else if(receivedReply.leaderTerm > currentTerm){
+                    currentTerm = receivedReply.leaderTerm;
                     serverRole = 'F';
                 }
             }
@@ -352,15 +382,18 @@ public class Server{
     }
     
 
-    public static void sendReply(String message, int serverId, Socket tcpClientSocket){
-    try{
-        PrintWriter outputWriter = new PrintWriter(tcpClientSocket.getOutputStream(), true);
-        outputWriter.write(message + "\n");
-        outputWriter.flush();
-        //System.out.println("RPLY SENT: " + message);
-        }
-        catch(IOException ioe){//System.err.println("sendMessage(): " + serverId + "; " + message + "; " + ioe);
-                               return;}
+    public static void sendReply(Message replyMsgObj, int serverId, Socket tcpClientSocket){
+        Type messageTypeToken = new TypeToken<Message>() {}.getType();
+        Gson gsonSend = new Gson();
+        String stringReply = gsonSend.toJson(replyMsgObj, messageTypeToken);
+        
+        try{
+            PrintWriter outputWriter = new PrintWriter(tcpClientSocket.getOutputStream(), true);
+            outputWriter.write(stringReply + "\n");
+            outputWriter.flush();
+            }
+            catch(IOException ioe){//System.err.println("sendMessage(): " + serverId + "; " + message + "; " + ioe);
+                                    return;}
     }
     
     public static void main(String[] args) throws IOException {
@@ -376,10 +409,10 @@ public class Server{
             System.out.println("My Port: " + myPort);
         ////////////////
         
-        electionTimer = new Timer();
-        startElectionTask = new TimerTask(){ public void run(){startElection();}};
-        randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
-        electionTimer.schedule(startElectionTask, randomInt);
+        //electionTimer = new Timer();
+        //startElectionTask = new TimerTask(){ public void run(){startElection();}};
+        //randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
+        //electionTimer.schedule(startElectionTask, randomInt);
 
         listenForMessage();
     }

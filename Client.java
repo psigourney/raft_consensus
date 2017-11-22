@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Scanner;
 
 import com.google.gson.Gson;
+import java.lang.reflect.Type;
 import com.google.gson.reflect.TypeToken;
 
 //Compile with:  javac -cp .;gson-2.6.2.jar Client.java
@@ -33,10 +34,12 @@ class Node{
 
 class LogEntry{
     public int term;
+    public int index;
     public String command;
     
-    public LogEntry(int termParam, String commandParam){
+    public LogEntry(int termParam, int indexParam, String commandParam){
         term = termParam;
+        index = indexParam;
         command = commandParam;
     }
 }
@@ -44,24 +47,30 @@ class LogEntry{
 
 class Message{
     public String type;
-    public int leaderTerm;
+    public int leaderTerm;  //Or candidate term if VOTEREQUEST
+    public int leaderId;    //Or candidate ID if VOTEREQUEST
     public int prevLogIndex;
     public int prevLogTerm;
     public ArrayList<LogEntry> entries;
     public int leaderCommitIndex;
+    public boolean reply;
     
     public Message( String typeParam,
                     int leaderTermParam,
+                    int leaderIdParam,
                     int prevLogIndexParam,
                     int prevLogTermParam,
                     ArrayList<LogEntry> entriesParam,
-                    int leaderCommitIndexParam){
+                    int leaderCommitIndexParam,
+                    boolean replyParam){
         type = typeParam;
         leaderTerm = leaderTermParam;
+        leaderId = leaderIdParam;
         prevLogIndex = prevLogIndexParam;
         prevLogTerm = prevLogTermParam;
         entries = entriesParam;
         leaderCommitIndex = leaderCommitIndexParam;
+        reply = replyParam;
     }
 }
 
@@ -103,9 +112,24 @@ public class Client{
 //      1..n = serverId of the leader (resend to leader)
 //      -1 = leader is unknown
 
-    public static int processUpdate(String message){
+
+
+            //Encoding message into JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonSend = new Gson();
+            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
+            //outputWriter.write(stringData);
+                        
+            //Converting the message from JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonRecv = new Gson();
+            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
+
+
+
+    public static int processUpdate(String input){
         int counter = -1;
-        int result = sendUpdate(nodeList.get(0).ipAddr, nodeList.get(0).port, message);
+        int result = sendUpdate(nodeList.get(0).ipAddr, nodeList.get(0).port, input);
         while(result != 0){
             if(result > 0){
                 //Go to the server specified in the result.
@@ -125,8 +149,11 @@ public class Client{
         //Old & Busted:
         //String formattedMsg = "CLIENTMSG|" + message + "\n";
         
-        //New Hotness:
-        Message myMessage = new Message("CLIENTMSG", 0,0,0, new ArrayList<LogEntry>(new LogEntry(0,message)), 0);
+        //New Hotness:        
+        LogEntry myLogEntry = new LogEntry(0, 0, message);
+        ArrayList<LogEntry> myLogList = new ArrayList<LogEntry>();
+        myLogList.add(myLogEntry);
+        Message myMessage = new Message("CLIENTMSG", 0,0,0,0, myLogList, 0, true);
                 
         try
         {
