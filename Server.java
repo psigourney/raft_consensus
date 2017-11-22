@@ -15,6 +15,13 @@ import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
+//Compile with:  javac -cp .;gson-2.6.2.jar Server.java
+//Run with: java -cp .;gson-2.6.2.jar Server
+
 class Node{
     public int id;
     public String ipAddr;
@@ -34,6 +41,29 @@ class LogEntry{
     public LogEntry(int termParam, String commandParam){
         term = termParam;
         command = commandParam;
+    }
+}
+
+class Message{
+    public String type;
+    public int leaderTerm;
+    public int prevLogIndex;
+    public int prevLogTerm;
+    public ArrayList<LogEntry> entries;
+    public int leaderCommitIndex;
+    
+    public Message( String typeParam,
+                    int leaderTermParam,
+                    int prevLogIndexParam,
+                    int prevLogTermParam,
+                    ArrayList<LogEntry> entriesParam,
+                    int leaderCommitIndexParam){
+        type = typeParam;
+        leaderTerm = leaderTermParam;
+        prevLogIndex = prevLogIndexParam;
+        prevLogTerm = prevLogTermParam;
+        entries = entriesParam;
+        leaderCommitIndex = leaderCommitIndexParam;
     }
 }
 
@@ -166,6 +196,12 @@ public class Server{
             Socket tcpClientSocket;
             String[] msgArray;
             String replyMessage = "";
+            
+            //Converting the message from JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonRecv = new Gson();
+            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
+            
             while(true){
                 tcpClientSocket = tcpServerSocket.accept();
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpClientSocket.getInputStream()));
@@ -182,15 +218,18 @@ public class Server{
                     if(messageType.equals("CLIENTMSG")){
                         System.out.println("CLIENTMSG RCVD: " + inputLine);
                         if(serverRole == 'L'){
-                            //Add message to the local log
-                            //Send reply after update is written
-                            //Send AppendEntries message to all servers to have them update their logs
+                            logList.add(new LogEntry(currentTerm, msgArray[1]));
+
                             replyMessage = "0\n";  //message logged successfully.
                             sendReply(replyMessage, 0, tcpClientSocket);
+                            
+                            //Now to send AppendLog message to all other servers.
+                            
+                            
                         }
                         else{
                             if(leaderId == myServerId) 
-                                replyMessage = "-1\n"; //Don't know the real leader
+                                replyMessage = "-1\n"; //I don't know the real leader
                             //Send current leader info back to client
                             else
                                 replyMessage = Integer.toString(leaderId) + "\n";
@@ -300,7 +339,6 @@ public class Server{
     public static void sendReply(String message, int serverId, Socket tcpClientSocket){
     try{
         PrintWriter outputWriter = new PrintWriter(tcpClientSocket.getOutputStream(), true);
-    
         outputWriter.write(message + "\n");
         outputWriter.flush();
         //System.out.println("RPLY SENT: " + message);
