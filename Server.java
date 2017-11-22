@@ -194,29 +194,45 @@ public class Server{
         try{
             ServerSocket tcpServerSocket = new ServerSocket(myPort);        
             Socket tcpClientSocket;
+            Type messageTypeToken = new TypeToken<Message>() {}.getType();
             String[] msgArray;
             String replyMessage = "";
             
+            
+            //Encoding message into JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonSend = new Gson();
+            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
+            //outputWriter.write(stringData);
+                        
             //Converting the message from JSON:
             //Type messageTypeToken = new TypeToken<Message>() {}.getType();
             //Gson gsonRecv = new Gson();
             //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
             
+            
+            
+            //Message object:
+            //public String type;
+            //public int leaderTerm;
+            //public int prevLogIndex;
+            //public int prevLogTerm;
+            //public ArrayList<LogEntry> entries;
+            //public int leaderCommitIndex;
+            
             while(true){
                 tcpClientSocket = tcpServerSocket.accept();
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpClientSocket.getInputStream()));
                 String inputLine = inputReader.readLine();
-                if(inputLine.length() > 0){
-                    //System.out.println("MSG RCVD: " + inputLine);
-                    msgArray = inputLine.trim().split("\\|");
-                    String messageType = msgArray[0];
-
+                Gson gsonRecv = new Gson();
+                Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
+                
                     // RESULT CODES for Client Messages
                     //      0 =  message sent
                     //      1..n = serverId of the leader (resend to leader)
                     //      -1 = leader is unknown
-                    if(messageType.equals("CLIENTMSG")){
-                        System.out.println("CLIENTMSG RCVD: " + inputLine);
+                    if(receivedMessage.messageType.equals("CLIENTMSG")){
+                        System.out.println("CLIENTMSG RCVD");
                         if(serverRole == 'L'){
                             logList.add(new LogEntry(currentTerm, msgArray[1]));
 

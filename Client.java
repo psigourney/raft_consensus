@@ -11,6 +11,24 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Scanner;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
+//Compile with:  javac -cp .;gson-2.6.2.jar Client.java
+//Run with: java -cp .;gson-2.6.2.jar Client
+
+
+            //Encoding message into JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonSend = new Gson();
+            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
+            //outputWriter.write(stringData);
+                        
+            //Converting the message from JSON:
+            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            //Gson gsonRecv = new Gson();
+            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
+
 class Node{
     public int id;
     public String ipAddr;
@@ -22,6 +40,40 @@ class Node{
         port = portParam;
     }
 } 
+
+class LogEntry{
+    public int term;
+    public String command;
+    
+    public LogEntry(int termParam, String commandParam){
+        term = termParam;
+        command = commandParam;
+    }
+}
+
+class Message{
+    public String type;
+    public int leaderTerm;
+    public int prevLogIndex;
+    public int prevLogTerm;
+    public ArrayList<LogEntry> entries;
+    public int leaderCommitIndex;
+    
+    public Message( String typeParam,
+                    int leaderTermParam,
+                    int prevLogIndexParam,
+                    int prevLogTermParam,
+                    ArrayList<LogEntry> entriesParam,
+                    int leaderCommitIndexParam){
+        type = typeParam;
+        leaderTerm = leaderTermParam;
+        prevLogIndex = prevLogIndexParam;
+        prevLogTerm = prevLogTermParam;
+        entries = entriesParam;
+        leaderCommitIndex = leaderCommitIndexParam;
+    }
+}
+
 
 
 public class Client{
