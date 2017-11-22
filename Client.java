@@ -18,17 +18,6 @@ import com.google.gson.reflect.TypeToken;
 //Run with: java -cp .;gson-2.6.2.jar Client
 
 
-            //Encoding message into JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonSend = new Gson();
-            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
-            //outputWriter.write(stringData);
-                        
-            //Converting the message from JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonRecv = new Gson();
-            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
-
 class Node{
     public int id;
     public String ipAddr;
@@ -41,6 +30,7 @@ class Node{
     }
 } 
 
+
 class LogEntry{
     public int term;
     public String command;
@@ -50,6 +40,7 @@ class LogEntry{
         command = commandParam;
     }
 }
+
 
 class Message{
     public String type;
@@ -73,7 +64,6 @@ class Message{
         leaderCommitIndex = leaderCommitIndexParam;
     }
 }
-
 
 
 public class Client{
@@ -130,15 +120,25 @@ public class Client{
         return result;
     }
     
+
     public static int sendUpdate(String ipAddr, int port, String message){
-        String formattedMsg = "CLIENTMSG|" + message + "\n";
+        //Old & Busted:
+        //String formattedMsg = "CLIENTMSG|" + message + "\n";
+        
+        //New Hotness:
+        Message myMessage = new Message("CLIENTMSG", 0,0,0, new ArrayList<LogEntry>(new LogEntry(0,message)), 0);
+                
         try
         {
+            Type messageTypeToken = new TypeToken<Message>() {}.getType();
+            Gson gsonSend = new Gson();
+            String messageString = gsonSend.toJson(myMessage, messageTypeToken);
+            
             Socket tcpSocket = new Socket(ipAddr, port);
             PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
             BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
     
-            outputWriter.write(formattedMsg);
+            outputWriter.write(messageString);
             outputWriter.flush();
     
             String replyMessage = inputReader.readLine();
@@ -157,7 +157,6 @@ public class Client{
         
         //First line of file will be the number of servers, each subsequent line will be: serverId:serverIp:serverPort
         initialSetup(args[0]);
-        
         
         String input = "";
         
