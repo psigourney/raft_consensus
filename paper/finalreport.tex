@@ -67,7 +67,7 @@
 %----------------------------------------------------------------------------------------
 
 \HRule \\[0.4cm]
-{ \huge \bfseries Raft - An Understandable Distributed Consensus Protocol}\\[0.4cm] % Title of your document
+{ \huge \bfseries Fleeing Paxos by Raft}\\[0.4cm] % Title of your document
 \HRule \\[1.5cm]
  
 %----------------------------------------------------------------------------------------
@@ -135,24 +135,116 @@ If a machine were to start at the beginning of the log and execute each command,
 At a more practical level, a distributed consensus protocol will keep these replicated logs consistent across the cluster.
 
 FLP states that an asynchronous distributed system can not tolerate failure and satisfy agreement, validity and termination. \cite{flp-theorem}
-So, consensus algorithms generally satisfy:
+So, consensus algorithms, including Raft, generally satisfy:
 \begin{enumerate}
     \item \textit{Safety} They always return a correct result.
     If a client randomly queries any server for the state of the system, the result should be the same regardless of which machine was queried.
     \item \textit{Availability} If a majority of the servers are available, the system, as a whole should be available.
     \item \textit{Time Invariance} The system should not depend on the physical timing of events.
-    \item \textit{Quorum Rate-Limiting} The response to the client should be returned once quorum is reached, not when all machines have responded.
+    \item \textit{Quorum Limited} The response to the client should be returned once quorum is reached, not when all machines have responded.
 \end{enumerate}
 
+Paxos, the leading distributed consensus algorithm thusfar, satisfies these properties, but its original incantation only arrived at consensus on a single value. \cite{long-form-paxos}
+Practical systems need to build a replicated log which is an extension of the original Paxos protocol.
+This extension is one symptom of a larger problem with Paxos where extensions are needed to build practical systems with these extensions not being formally studied.
+Furthermore, the single-decree Paxos protocol is challenging enough in itself to understand, so extensions are incredibly hard to fully grok.
 
+Since Paxos is poorly suited for building practical systems due to its complexity, the authors of Raft, designed their protocol for understandability.
+This is obviously a unique goal as compared to most other CS papers where the goal is to improve some time, memory or message complexity.
+
+The authors worked toward this goal using two techniques.
 First, they on decomposed the primary problem, distributed consensus, into a couple independent sub-problems.
 Second, they minimized the state space of the algorithm.
 
-\section{Previous Work}
+In this work, we examine the Paxos algorithm, implement it and examine its performance
+
+\section{Algorithm Overview}
+
+Whereas Paxos shares a solution detail among multiple sub-problems, Raft targets a few sub-problems independent of one another.
+Before we discuss how Paxos solves these sub-problems, there are a few structures which we need to explain.
+
+\subsection{Structures}
+First, there is the concept of a term.
+A term is a subset of the system's execution which begins with an election.
+Most of the time, a term then ends with normal operation, some time period where the system is receiving commands from clients.
+In exceptional circumstances, a term can end with no leader being elected which results in a new election.
+
+The second structure described by Paxos is the replicated log.
+The replicated log, as touched on above, is a list with each entry containing the term number and the command recorded at that index number.
+An example of the replicated log is shown below in Fig.~\ref{fig:replicatedlog}.
+
+\begin{figure}
+    \centering{}
+    \includegraphics[width=0.75\textwidth]{replicatedlog.png}
+    \caption{\label{fig:replicatedlog}Above is an example of a replicated log. The top number and the color represent the term and the index of each entry is at the top.}
+\end{figure}
+
+Raft also uses two RPC messages which both have a well defined schema.
+The purpose and implications of each will be discussed later in the paper, but each will be introduced here.
+First, the \texttt{RequestVote} RPC is used by candidates to initiate an election and possibly be elected leader.
+
+Second, the \texttt{AppendEntries} RPC is used for two purposes.
+Primarily, it is used by the leader to replicate its logs among the followers.
+Secondarily, it is also used as the heartbeat mechanism.
+Lastly, the \texttt{AppendEntries} RPC will rewind an inconsistent follower's state and bring the follower into a state consistent with the current leader.
+We have found that this RPC is somewhat overloaded and it would help understandability to decompose this RPC into a \texttt{HandleLogs} RPC and a \texttt{Heartbeat} RPC.
+
+\subsection{Subproblems}
+
+\subsubsection{Leader Election}
+
+Using these data structures, the first of the sub-problems which Raft solves is leader election
+Like Paxos and unlike some other consensus protocols, such as egalitarian Paxos \cite{e-paxos}, Raft elects a leader.
+The other two states a machine can be in are follower and candidate.
+When a machine starts, it is in a follower state.
+Leader election when a machine has not received a heartbeat message (\texttt{AppendEntries} RPC) during some random interval, \texttt{election\_interval}, the machine initiates an election.
+The machine, now in a candidate state, sends a \texttt{RequestVote} RPC.
+
+That candidate then waits to receive votes from a majority of machines for that term.
+While holding that election, if the candidate, receives a message with a term greater than or equal to the candidate's term, the candidate knows there is some other legitimate leader in the system and reverts back to being a follower.
+The else there, the supposed leader's term is less than the candidate's simply means the candidate continues the election.
+Once a candidate receives a majority of vote's from the cluster, it starts sending heartbeat signals which suppresses other machine's attempts at becoming leader.
+
+\subsubsection{Log Replication}
+
+The second sub-problem Raft solves is log replication.
+This problem is markedly more complicated.
+
+To more easily handle this problem, Raft defines two properties for the logs.
+First, two machines with a log entry at the same index and same term will contain the same command.
+This property allows us to couple ordering to the state of the system.
+Inducting on that first property, two machines containing a log entry with the same index and term imply all previous entries are identical.
+By defining these invariants, Raft simplifies the safety of the system.
+
+The happy path case of log replication is when a leader receives a request from a client, the leader appends the request to its log, sends the \texttt{AppendEntries} RPC (heartbeat) and the followers append that log entry to their logs.
+The last step of the process is the leader marking that entry as committed.
+Once the leader receives \texttt{success} for an \texttt{AppendEntries} RPC back from a majority of the
+
+The unhappy path is when there are a series of leader and follower crashes.
+In this case, the system needs a way of rectifying the competing logs into a consistent state.
+The system accomplishes this by overloading the \texttt{AppendEntries} RPC.
+When a leader sends an \texttt{AppendEntries} RPC, it also sends \texttt{prevLogIndex} and \texttt{prevLogTerm} which contains the index and term of the previous entry.
+If a follower receives this \texttt{AppendEntries} RPC and \texttt{prevLogIndex} and \texttt{prevLogTerm} do not match the follower's log values, the follower will return false.
+The leader will then rewind until the leader and follower agree on an index and term.
+Using this mechanism, the current leader can rectify inconsistencies in the follower's logs.
 
 
-\section{Algorithm}
+\subsubsection{Safety}
 
+Raft handles safety simply by ensuring that log entries always flow from leaders to followers.
+A follower can never commit an entry until it has received a commit signal from the master.
+
+
+
+
+
+
+
+
+
+
+
+\newpage
 
 \subsection{Everything below this is just an example}
 
