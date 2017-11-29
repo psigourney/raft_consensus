@@ -108,37 +108,23 @@ public class Client{
 // 4) If reply is serverId = 0; Send message to next server in list.  GOTO 2.
 
 // RESULT CODES:
-//      0 =  message sent
-//      1..n = serverId of the leader (resend to leader)
+//      -99 =  message sent
+//      0..n = serverId of the leader (resend to leader)
 //      -1 = leader is unknown
-
-
-
-            //Encoding message into JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonSend = new Gson();
-            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
-            //outputWriter.write(stringData);
-                        
-            //Converting the message from JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonRecv = new Gson();
-            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
-
 
 
     public static int processUpdate(String input){
         int counter = -1;
         int result = sendUpdate(nodeList.get(0).ipAddr, nodeList.get(0).port, input);
-        while(result != 0){
+        while(result != -99){
             if(result > 0){
                 //Go to the server specified in the result.
-                result = sendUpdate(nodeList.get(result-1).ipAddr, nodeList.get(result-1).port, message);
+                result = sendUpdate(nodeList.get(result).ipAddr, nodeList.get(result).port, input);
             }
             else{ 
                 //Try next server in list
                 int serverIndex = (++counter % numberOfServers);
-                result = sendUpdate(nodeList.get(serverIndex).ipAddr, nodeList.get(serverIndex).port, message);
+                result = sendUpdate(nodeList.get(serverIndex).ipAddr, nodeList.get(serverIndex).port, input);
             }
         }
         return result;
@@ -146,15 +132,11 @@ public class Client{
     
 
     public static int sendUpdate(String ipAddr, int port, String message){
-        //Old & Busted:
-        //String formattedMsg = "CLIENTMSG|" + message + "\n";
-        
-        //New Hotness:        
         LogEntry myLogEntry = new LogEntry(0, 0, message);
         ArrayList<LogEntry> myLogList = new ArrayList<LogEntry>();
         myLogList.add(myLogEntry);
         Message myMessage = new Message("CLIENTMSG", 0,0,0,0, myLogList, 0, true);
-                
+
         try
         {
             Type messageTypeToken = new TypeToken<Message>() {}.getType();
@@ -165,11 +147,15 @@ public class Client{
             PrintWriter outputWriter = new PrintWriter(tcpSocket.getOutputStream(), true);
             BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
     
-            outputWriter.write(messageString);
+            outputWriter.write(messageString + "\n");
             outputWriter.flush();
-    
+            
+            
             String replyMessage = inputReader.readLine();
-            return Integer.parseInt(replyMessage.trim());
+            Gson gsonRecv = new Gson();
+            Message receivedMessage = gsonRecv.fromJson(replyMessage, messageTypeToken);
+            
+            return receivedMessage.leaderId;
         }
         catch(IOException ioe){//System.err.println("sendUpdate(): " + ipAddr + ":" + port + "; " + ioe); 
                                 return -1;}
@@ -198,7 +184,7 @@ public class Client{
             }
             else System.exit(1);
             
-            if(result == 0)
+            if(result == -99)
                 System.out.println("Update delivered");
             else
                 System.out.println("Delivery failed");

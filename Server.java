@@ -100,8 +100,8 @@ public class Server{
     public static int appliedIndex = 0; //Index of highest applied log entry
 
     //For Leaders to use:
-    public static ArrayList<Integer> nextIndex; //for each server, index of next log entry to send to that server
-    public static ArrayList<Integer> matchIndex; //for each server, index of highest log entry known to be replicated on that server
+    //public static ArrayList<Integer> nextIndex; //for each server, index of next log entry to send to that server
+    //public static ArrayList<Integer> matchIndex; //for each server, index of highest log entry known to be replicated on that server
 
     
     public static ArrayList<Node> nodeList = new ArrayList<Node>();
@@ -122,11 +122,12 @@ public class Server{
         }
     };
     
+
+    
    
    
     public static void sendHeartbeat(){
         ArrayList<LogEntry> myList = new ArrayList<LogEntry>();
-        String message =  "APPENDENTRY" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm + "|" + leaderId;
         Message replyMsgObj = new Message("APPENDENTRY", currentTerm, leaderId, commitIndex, 0, myList, commitIndex, false);
         if(serverRole == 'L'){
             for(Node node : nodeList){
@@ -137,7 +138,6 @@ public class Server{
     
     public static void sendVoteRequest(){
         ArrayList<LogEntry> myList = new ArrayList<LogEntry>();
-        String message = "REQUESTVOTE" + "|" + myServerId + "|" + myIp + "|" + myPort + "|" + currentTerm;
         Message replyMsgObj = new Message("REQUESTVOTE", currentTerm, myServerId, 0, 0, myList, 0, true);
         if(serverRole == 'C'){
             for(Node node : nodeList){
@@ -161,16 +161,20 @@ public class Server{
         System.out.println("Votes Received for term " + currentTerm + ": " + votesReceived);
         if(votesReceived > Math.ceil(numberOfServers/2)){
             System.out.println("Elected leader for term " + currentTerm);
-            heartbeatTimer.scheduleAtFixedRate(startHeartbeatTask, HEARTBEAT_TIMER, HEARTBEAT_TIMER);
             serverRole = 'L';
             leaderId = myServerId;
             votedFor = 0;
             votesReceived = 0;
+            
+            heartbeatTimer = new Timer();
+            startHeartbeatTask = new TimerTask(){public void run(){sendHeartbeat();}};
+            heartbeatTimer.scheduleAtFixedRate(startHeartbeatTask, HEARTBEAT_TIMER, HEARTBEAT_TIMER);
         }
         else{
             serverRole = 'F';
             votedFor = 0;
             votesReceived = 0;
+
             electionTimer = new Timer();
             startElectionTask = new TimerTask(){ public void run(){startElection();}};
             randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
@@ -203,8 +207,9 @@ public class Server{
 
                 //initialize values
                 logList.add(new LogEntry(0,0,"init"));
-                nextIndex.add(0);
-                matchIndex.add(0);
+                //Integer zero = 0;
+                //nextIndex.add(zero);
+                //matchIndex.add(zero);
 
                 
                 nodeList.add(new Node(Integer.parseInt(lineArr[0]), lineArr[1], Integer.parseInt(lineArr[2])));
@@ -217,27 +222,7 @@ public class Server{
     }
 
  
-            //Encoding message into JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonSend = new Gson();
-            //String stringData = gsonSend.toJson(messageObjectToSend, messageTypeToken);
-            //outputWriter.write(stringData);
-                        
-            //Converting the message from JSON:
-            //Type messageTypeToken = new TypeToken<Message>() {}.getType();
-            //Gson gsonRecv = new Gson();
-            //Message receivedMessage = gsonRecv.fromJson(receivedData, messageTypeToken);
-            
-            
-            
-            //Message object:
-            //public String type;
-            //public int leaderTerm;
-            //public int prevLogIndex;
-            //public int prevLogTerm;
-            //public ArrayList<LogEntry> entries;
-            //public int leaderCommitIndex;
-  
+
     
     public static void listenForMessage() throws IOException {
         try{
@@ -249,23 +234,39 @@ public class Server{
                 tcpClientSocket = tcpServerSocket.accept();
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(tcpClientSocket.getInputStream()));
                 String inputLine = inputReader.readLine();
+                
+                if(serverRole != 'L'){
+                    electionTimer.cancel();  //Received a heartbeat, cancel the electionTimer
+                }
+                
+                System.out.println("Received: " + inputLine);
+                
                 Gson gsonRecv = new Gson();
                 Message receivedMessage = gsonRecv.fromJson(inputLine, messageTypeToken);
-
                     if(receivedMessage.type.equals("CLIENTMSG")){
-                        System.out.println("CLIENTMSG RCVD");
                         if(serverRole == 'L'){
                             //Reply with leaderId value of 0 to indicate message recorded successfully.
-                            Message replyMsgObj = new Message("CLIENTMSGREPLY", currentTerm, 0, 0, 0, receivedMessage.entries, commitIndex, true);
+                            Message replyMsgObj = new Message("CLIENTMSGREPLY", currentTerm, -99, 0, 0, receivedMessage.entries, commitIndex, true);
                             sendReply(replyMsgObj, 0, tcpClientSocket);  //send reply to client
                             
-                            //  TODO: Send the AppendEntry message to all other servers.
+                            for(Node node : nodeList){
+                                int id = node.id;
+                                String ip = node.ipAddr;
+                                int port = node.port;
+                                int prevLogTerm = logList.get(appliedIndex).term;
+                                String command = receivedMessage.entries.get(0).command;
+                                LogEntry newLog = new LogEntry(currentTerm, appliedIndex+1, command);
+                                ArrayList<LogEntry> newLogList = new ArrayList<LogEntry>();
+                                newLogList.add(newLog);
+                                Message msg = new Message("APPENDENTRY", currentTerm, leaderId, appliedIndex, prevLogTerm, newLogList, commitIndex, true);
+                                sendMessage(msg, id, ip, port);
+                            }
                             
                             //  When at least 50% of servers have replied with TRUE, message is committed.
                             //  Add entry to the local log
                             commitIndex += 1;
                             logList.add(new LogEntry(currentTerm, commitIndex, receivedMessage.entries.get(0).command));
-                            
+                            System.out.println("**Added \"" + receivedMessage.entries.get(0).command + "\" to my LEADER log; index: " + (appliedIndex+1) + " term: " + currentTerm);
                             //  Apply entry to the state machine
                             appliedIndex += 1;
                         }
@@ -281,10 +282,9 @@ public class Server{
                         }
                     }
 
-                    electionTimer.cancel();
-                    
                     if(receivedMessage.type.equals("APPENDENTRY")){
                         Message replyMsgObj;
+                        
                         if(receivedMessage.leaderTerm < currentTerm){
                             replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
                         }
@@ -303,6 +303,10 @@ public class Server{
                             else{
                                 // TODO:  CHECK MY LOG and compare against teh message's log entries
                                 // Craft reply accordingly
+                                commitIndex += 1;
+                                logList.add(receivedMessage.entries.get(0));
+                                System.out.println("**Added \"" + receivedMessage.entries.get(0).command + "\" to my log; index: " + receivedMessage.entries.get(0).index + " term: " + receivedMessage.entries.get(0).term);
+                                appliedIndex += 1;
 
                                 //Placeholder:
                                 replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, true);
@@ -314,7 +318,7 @@ public class Server{
                     else if(receivedMessage.type.equals("REQUESTVOTE")){
                         Message replyMsgObj;
                         if(receivedMessage.leaderTerm <= currentTerm || (votedFor != receivedMessage.leaderId && votedFor != 0 && currentTerm >= receivedMessage.leaderTerm)){
-                            replyMsgObj = new Message("APPENDREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
+                            replyMsgObj = new Message("VOTEREPLY", currentTerm, leaderId, 0, 0, receivedMessage.entries, commitIndex, false);
                         }
                         else{
                             if(serverRole == 'L'){
@@ -323,17 +327,17 @@ public class Server{
                             }
                             currentTerm = receivedMessage.leaderTerm;
                             votedFor = receivedMessage.leaderId;
-                            replyMsgObj = new Message("APPENDREPLY", currentTerm, votedFor, 0, 0, receivedMessage.entries, commitIndex, true);
+                            replyMsgObj = new Message("VOTEREPLY", currentTerm, votedFor, 0, 0, receivedMessage.entries, commitIndex, true);
                         }
                         sendReply(replyMsgObj, receivedMessage.leaderId, tcpClientSocket);
                     }
                     
-                    
-                    electionTimer = new Timer();
-                    startElectionTask = new TimerTask(){ public void run(){startElection();}};
-                    randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
-                    electionTimer.schedule(startElectionTask, randomInt);
-                
+                    if(serverRole != 'L'){  //Restart the electionTimer if I'm not the leader
+                        electionTimer = new Timer();
+                        startElectionTask = new TimerTask(){ public void run(){startElection();}};
+                        randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
+                        electionTimer.schedule(startElectionTask, randomInt);
+                    }
             }
         }
         catch(IOException ioe){System.err.println("***EXCEPTION: listenForMessage(): " + ioe);}
@@ -392,7 +396,7 @@ public class Server{
             outputWriter.write(stringReply + "\n");
             outputWriter.flush();
             }
-            catch(IOException ioe){//System.err.println("sendMessage(): " + serverId + "; " + message + "; " + ioe);
+            catch(IOException ioe){//System.err.println("sendMessage(): " + serverId + "; " + ioe);
                                     return;}
     }
     
@@ -409,10 +413,10 @@ public class Server{
             System.out.println("My Port: " + myPort);
         ////////////////
         
-        //electionTimer = new Timer();
-        //startElectionTask = new TimerTask(){ public void run(){startElection();}};
-        //randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
-        //electionTimer.schedule(startElectionTask, randomInt);
+        electionTimer = new Timer();
+        startElectionTask = new TimerTask(){ public void run(){startElection();}};
+        randomInt = rand.nextInt((MAX_ELECTION_TIMER - MIN_ELECTION_TIMER) + 1) + MIN_ELECTION_TIMER;
+        electionTimer.schedule(startElectionTask, randomInt);
 
         listenForMessage();
     }
