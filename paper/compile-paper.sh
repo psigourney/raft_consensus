@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-pdflatex finalreport.tex
-bibtex finalreport.aux
-pdflatex finalreport.tex
-pdflatex finalreport.tex
-open finalreport.pdf
+pdflatex finalreport2.tex
+bibtex finalreport2.aux
+pdflatex finalreport2.tex
+pdflatex finalreport2.tex
+open finalreport2.pdf
 

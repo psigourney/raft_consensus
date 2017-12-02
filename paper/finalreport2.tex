@@ -227,8 +227,22 @@ Using this mechanism, the current leader can rectify inconsistencies in the foll
 
 \subsubsection{Safety}
 
-Raft handles safety simply by ensuring that log entries can only flow from leaders to followers.
-A follower can never commit an entry until it has received a commit signal from the leader.  If a follower receives a command from a client, it will direct the client to the current leader.  All new client commands must first go through the leader, to ensure the leader's log is always complete.
+The above properties are not sufficient to ensure safety.
+For instance, imagine a machine has been down for some time and then it is elected leader.
+It would overwrite committed log entries which would result in machines being in different states.
+Raft employs two mechanisms by which it ensures safety.
+
+First, when a candidate initiates an election, it sends the term of its last committed entry.
+If a follower receives that \texttt{RequestVote} RPC and the follower's term is greater than the candidate's, the follower will refuse to vote for that candidate.
+Since a majority of the cluster had to have had a value for it to be committed, that candidate with a stale term will not win.
+
+Second, it is possible that an entry had been sent to a majority of servers, but the leader crashed before it can send the heartbeat which would cause the entries to be committed.
+In this case, Raft has two options here.
+One solution is to develop some protocol to count replicas for previous terms and send commits for those terms.
+Another is to have the current leader only commit for its term.
+Once there is a commit at the ``head'' of the log, all previous entries can be assumed to be committed.
+The first method has some peculiar edge conditions, but the second could slow progress.
+Since this Raft, the authors decided on the simpler method
 
 
 

@@ -144,7 +144,7 @@ So, consensus algorithms, including Raft, generally satisfy:
     \item \textit{Quorum Limited} The response to the client should be returned once quorum is reached, not when all machines have responded.
 \end{enumerate}
 
-Paxos, the leading distributed consensus algorithm thusfar, satisfies these properties, but its original incantation only arrived at consensus on a single value. \cite{long-form-paxos}
+Paxos, the leading distributed consensus algorithm thusfar, satisfies these properties, but its original incantation only arrives at consensus on a single value. \cite{long-form-paxos}
 Practical systems need to build a replicated log which is an extension of the original Paxos protocol.
 This extension is one symptom of a larger problem with Paxos where extensions are needed to build practical systems with these extensions not being formally studied.
 Furthermore, the single-decree Paxos protocol is challenging enough in itself to understand, so extensions are incredibly hard to fully grok.
@@ -201,7 +201,7 @@ Leader election when a machine has not received a heartbeat message (\texttt{App
 The machine, now in a candidate state, sends a \texttt{RequestVote} RPC.
 
 That candidate then waits to receive votes from a majority of machines for that term.
-While holding that election, if the candidate, receives a message with a term greater than or equal to the candidate's term, the candidate knows there is some other legitimate leader in the system and reverts back to being a follower.
+While holding that election, if the candidate receives a message with a term greater than or equal to the candidate's term, the candidate knows there is some other legitimate leader in the system and reverts back to being a follower.
 The else there, the supposed leader's term is less than the candidate's simply means the candidate continues the election.
 Once a candidate receives a majority of vote's from the cluster, it starts sending heartbeat signals which suppresses other machine's attempts at becoming leader.
 
@@ -218,7 +218,7 @@ By defining these invariants, Raft simplifies the safety of the system.
 
 The happy path case of log replication is when a leader receives a request from a client, the leader appends the request to its log, sends the \texttt{AppendEntries} RPC (heartbeat) and the followers append that log entry to their logs.
 The last step of the process is the leader marking that entry as committed.
-Once the leader receives \texttt{success} for an \texttt{AppendEntries} RPC back from a majority of the
+Once the leader receives \texttt{success} for an \texttt{AppendEntries} RPC back from a majority of the machines, the leader increments its \texttt{commitIndex} and communicates that updated index with the next heartbeat.
 
 The unhappy path is when there are a series of leader and follower crashes.
 In this case, the system needs a way of rectifying the competing logs into a consistent state.
@@ -231,8 +231,13 @@ Using this mechanism, the current leader can rectify inconsistencies in the foll
 
 \subsubsection{Safety}
 
-Raft handles safety simply by ensuring that log entries always flow from leaders to followers.
-A follower can never commit an entry until it has received a commit signal from the master.
+The above properties are not sufficient to ensure safety.
+For instance, imagine a machine has been down for some time and then it is elected leader.
+It would overwrite committed log entries which would result in machines being in different states.
+Raft employs two mechanisms by which it ensures safety.
+
+First, when a candidate initiates an election, it sends the term of its last committed entry.
+If a follower receives that \texttt{RequestVote} RPC and the follower's term is greater than the candidate's
 
 
 
