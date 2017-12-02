@@ -211,7 +211,7 @@ To more easily handle this problem, Raft defines two properties for the logs:
 First, two machines with log entries at the same index with the same term will contain the same command.
 This property allows us to couple ordering to the state of the system.
 Building on the first property, two machines containing log entries with the same index and term implies all previous log entries are identical between the machines.
-By defining these axiom, Raft simplifies the safety of the system.
+By defining these invariants, Raft simplifies the safety of the system.
 
 The happy path case of log replication is when a leader receives a request from a client, the leader appends the request to its log, sends the \texttt{AppendEntries} RPC and the followers append the log entry to their logs.
 The last step of the process is the leader marking the log entry as committed once the leader receives replies of \texttt{success} to an \texttt{AppendEntries} RPC from a majority of the members of the cluster, the leader marks the entry as committed and the entry can then be applied to the state machine with the knowledge that a majority of the other cluster members will also apply the entry.
@@ -233,15 +233,17 @@ A follower can never commit an entry until it has received a commit signal from 
 
 
 
+\subsection{Conclusion}
 
-
-
+We feel Raft has accomplished its goal: to create a viable, understandable alternative consensus algorithm to Paxos which doesn't require having to stray from the defined algorithm in order to build a real-world implementation.  We hope the idea of simplicity and understandability in algorithmic design will take hold and other researchers will continue the trend started by Ongaro and Ousterhout with Raft.
 
 
 
 \newpage
 
 
+\bibliographystyle{plain}
+\bibliography{references}
 
 
 
@@ -307,7 +309,6 @@ A follower can never commit an entry until it has received a commit signal from 
 
 % We hope you find write\LaTeX\ useful, and please let us know if you have any feedback using the help menu above.
 
-\bibliographystyle{plain}
-\bibliography{references}
+
 
 \end{document}
